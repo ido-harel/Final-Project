@@ -190,25 +190,34 @@ Matrix *similarity_matrix(const Matrix *points)
     return similarity;
 }
 
-Matrix *degree_matrix(const Matrix *points)
+static Matrix *degree_from_similarity(const Matrix *similarity)
 {
-    Matrix *similarity;
     Matrix *degree;
     size_t i;
     size_t j;
 
-    similarity = similarity_matrix(points);
-    degree = matrix_create(points->rows, points->rows);
-    if (similarity == NULL || degree == NULL) {
-        matrix_free(similarity);
-        matrix_free(degree);
+    degree = matrix_create(similarity->rows, similarity->rows);
+    if (degree == NULL) {
         return NULL;
     }
-    for (i = 0; i < points->rows; i++) {
-        for (j = 0; j < points->rows; j++) {
+    for (i = 0; i < similarity->rows; i++) {
+        for (j = 0; j < similarity->cols; j++) {
             AT(degree, i, i) += AT(similarity, i, j);
         }
     }
+    return degree;
+}
+
+Matrix *degree_matrix(const Matrix *points)
+{
+    Matrix *similarity;
+    Matrix *degree;
+
+    similarity = similarity_matrix(points);
+    if (similarity == NULL) {
+        return NULL;
+    }
+    degree = degree_from_similarity(similarity);
     matrix_free(similarity);
     return degree;
 }
@@ -220,12 +229,14 @@ Matrix *normalized_matrix(const Matrix *points)
     Matrix *normalized;
     size_t i;
     size_t j;
-    double scale;
 
     similarity = similarity_matrix(points);
-    degree = degree_matrix(points);
+    if (similarity == NULL) {
+        return NULL;
+    }
+    degree = degree_from_similarity(similarity);
     normalized = matrix_create(points->rows, points->rows);
-    if (similarity == NULL || degree == NULL || normalized == NULL) {
+    if (degree == NULL || normalized == NULL) {
         matrix_free(similarity);
         matrix_free(degree);
         matrix_free(normalized);
@@ -233,9 +244,9 @@ Matrix *normalized_matrix(const Matrix *points)
     }
     for (i = 0; i < points->rows; i++) {
         for (j = 0; j < points->rows; j++) {
-            scale = AT(degree, i, i) * AT(degree, j, j);
-            if (scale > 0.0) {
-                AT(normalized, i, j) = AT(similarity, i, j) / sqrt(scale);
+            if (AT(degree, i, i) > 0.0 && AT(degree, j, j) > 0.0) {
+                AT(normalized, i, j) = (AT(similarity, i, j) /
+                    sqrt(AT(degree, i, i))) / sqrt(AT(degree, j, j));
             }
         }
     }
@@ -275,7 +286,7 @@ static double h_denominator(const Matrix *h, size_t i, size_t j)
     double denominator;
 
     denominator = 0.0;
-    for (row = 0; row < h->cols; row++) {
+    for (row = 0; row < h->rows; row++) {
         for (inner = 0; inner < h->cols; inner++) {
             denominator += AT(h, i, inner) * AT(h, row, inner) * AT(h, row, j);
         }
@@ -320,15 +331,15 @@ int symnmf_optimize(Matrix *h, const Matrix *w, int max_iter, double epsilon)
     }
     next = matrix_create(h->rows, h->cols);
     if (next == NULL) {
-        return -1;
+        return -2;
     }
     while (max_iter-- > 0) {
         if (!update_h(h, w, next, &squared_change)) {
             matrix_free(next);
-            return -1;
+            return -2;
         }
         memcpy(h->data, next->data, h->rows * h->cols * sizeof(double));
-        if (squared_change < epsilon * epsilon) {
+        if (squared_change < epsilon) {
             break;
         }
     }

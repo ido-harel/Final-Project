@@ -181,6 +181,7 @@ static PyObject *py_symnmf(PyObject *self, PyObject *args)
     Matrix *h;
     Matrix *w;
     int max_iter;
+    int status;
     double epsilon;
     PyObject *output;
 
@@ -197,9 +198,13 @@ static PyObject *py_symnmf(PyObject *self, PyObject *args)
         matrix_free(h);
         return NULL;
     }
-    if (symnmf_optimize(h, w, max_iter, epsilon) != 0) {
+    status = symnmf_optimize(h, w, max_iter, epsilon);
+    if (status != 0) {
         matrix_free(h);
         matrix_free(w);
+        if (status == -2) {
+            return PyErr_NoMemory();
+        }
         PyErr_SetString(PyExc_ValueError, "incompatible matrices or invalid parameters");
         return NULL;
     }
